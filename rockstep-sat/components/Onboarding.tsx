@@ -7,7 +7,6 @@ import { Mountain } from "./Icons";
 
 export interface OnboardingResult {
   profile: Profile;
-  needsPlacement: boolean;
 }
 
 const STEPS = ["name", "grade", "test", "date", "score", "goal"] as const;
@@ -96,7 +95,6 @@ export default function Onboarding({ onComplete }: { onComplete: (r: OnboardingR
       ? { rw: clampToScale(Number(lastRw), test), math: clampToScale(Number(lastMath), test) }
       : { rw: 0, math: 0 };
     onComplete({
-      needsPlacement: !hasScore,
       profile: {
         name: name.trim(),
         grade,
@@ -202,11 +200,11 @@ export default function Onboarding({ onComplete }: { onComplete: (r: OnboardingR
                   <ScoreField label="Reading & Writing" value={lastRw} onChange={setLastRw} test={lastTest} />
                   <ScoreField label="Math" value={lastMath} onChange={setLastMath} test={lastTest} />
                 </div>
-                <p className="note">The PSATs and SAT share one score scale, so a PSAT score carries straight over.</p>
+                <p className="note">The PSATs and SAT share one score scale, so a PSAT score carries straight over. Your score sets how hard your questions start. Next, a short placement finds the skills you already know so you can skip them.</p>
               </div>
             )}
             {hasScore === false && (
-              <p className="note">No problem. After this you'll take a short placement quiz, 6 questions per section, to find your starting point.</p>
+              <p className="note">No problem. Next you'll take a placement that finds your starting point and the skills you already know.</p>
             )}
           </>
         )}
@@ -227,7 +225,7 @@ export default function Onboarding({ onComplete }: { onComplete: (r: OnboardingR
 
         <div className="onboard-actions">
           <button type="submit" className="btn primary wide" disabled={!canNext}>
-            {step === STEPS.length - 1 ? (hasScore ? "Build my route" : "Start placement quiz") : "Continue"}
+            {step === STEPS.length - 1 ? "Continue to placement" : "Continue"}
           </button>
         </div>
       </form>

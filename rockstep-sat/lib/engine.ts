@@ -1,8 +1,9 @@
 import type {
-  AppState, Level, PathNode, Profile, SessionResult, SessionSpec, Subject, TestType, Unit,
+  AppState, Level, PathNode, Profile, Question, SessionResult, SessionSpec, Subject, TestType, Unit,
 } from "./types";
-import { LEVEL_NAME, domainsFor, skillById, skillsFor } from "./curriculum";
+import { DOMAINS, domainsFor, skillById, skillsFor } from "./curriculum";
 import { TESTS, clampToScale } from "./scales";
+import { BANK_BY_ID } from "./bank";
 import { addDays, daysBetween } from "./dates";
 
 export const LESSON_SIZE = 8;
@@ -17,11 +18,11 @@ export function initialState(): AppState {
     version: 1,
     profile: null,
     completed: {},
-    testOuts: {},
     days: {},
     xp: 0,
     streak: { count: 0, best: 0, lastDate: null, freezes: 0, frozenDates: [] },
     answers: {},
+    placement: null,
     mistakes: [],
     aiBank: {},
     recent: [],
@@ -29,39 +30,104 @@ export function initialState(): AppState {
   };
 }
 
-// ───────── Placement ─────────
+// ───────── Levels & placement ─────────
 
+/** Section score (any PSAT/SAT, same vertical scale) to starting difficulty. */
 export function levelFromScore(score: number): Level {
   if (score < 480) return 1;
-  if (score < 600) return 2;
-  return 3;
+  if (score < 580) return 2;
+  if (score < 680) return 3;
+  return 4;
 }
 
+/** Every route climbs at least one level and reaches at least Advanced; goals of 600+ reach Expert. */
 export function endLevelFor(target: number, start: Level): Level {
-  const end: Level = target >= 600 ? 3 : 2;
-  return Math.max(end, start) as Level;
+  const byGoal: Level = target >= 600 ? 4 : 3;
+  return Math.max(byGoal, Math.min(4, start + 1)) as Level;
 }
 
-/** Turns a placement quiz result into a section score estimate on the student's test scale. */
-export function estimateFromPlacement(correct: number, total: number, test: TestType): number {
-  const frac = total ? correct / total : 0;
-  const position = 0.25 + frac * 0.6; // 0 right ≈ 25% of the range, all right ≈ 85%
+export const hasScore = (p: Profile) => !!p.last;
+
+/** The level placement probes first: the score's level, or Core when there's no score yet. */
+export function probeLevel(p: Profile, subject: Subject): Level {
+  return hasScore(p) ? levelFromScore(p.start[subject]) : 2;
+}
+
+export function placementDomains(): string[] {
+  return DOMAINS.map((d) => d.id);
+}
+
+export function placementComplete(state: AppState): boolean {
+  return !!state.placement && placementDomains().every((d) => state.placement!.done.includes(d));
+}
+
+export function subjectPlaced(state: AppState, subject: Subject): boolean {
+  return !!state.placement && domainsFor(subject).every((d) => state.placement!.done.includes(d.id));
+}
+
+/**
+ * Turns a domain check into a "known level" per skill. Each skill's first question is at the
+ * probe level. Right: a harder follow-up decides whether the next level is known too.
+ * Wrong: with a past score, everything below the probe level is assumed known; without one,
+ * an easier follow-up checks the level below.
+ */
+export function scorePlacement(
+  p: Profile,
+  spec: SessionSpec,
+  result: SessionResult,
+): Record<string, number> {
+  const lookup = questionLookup(spec);
+  const out: Record<string, number> = {};
+  const bySkill: Record<string, { level: number; correct: boolean }[]> = {};
+  for (const a of result.answers) {
+    const q = lookup[a.qid];
+    if (!q) continue;
+    (bySkill[q.skill] ??= []).push({ level: q.level, correct: a.correct });
+  }
+  for (const [skill, tries] of Object.entries(bySkill)) {
+    const [first, second] = tries;
+    if (first.correct) {
+      out[skill] = second ? (second.correct ? second.level : first.level) : first.level;
+    } else if (second) {
+      out[skill] = second.correct ? second.level : second.level - 1;
+    } else {
+      out[skill] = first.level - 1;
+    }
+  }
+  return out;
+}
+
+/** Without a past score, estimate a section score from placement results. */
+export function estimateSection(state: AppState, subject: Subject, test: TestType): number {
+  const skills = domainsFor(subject).flatMap((d) => skillsFor(d.id));
+  const totalW = skills.reduce((t, s) => t + s.weight, 0);
+  const avg = skills.reduce((t, s) => t + s.weight * (state.placement?.skills[s.id] ?? 1), 0) / totalW;
   const { min, max } = TESTS[test].section;
-  return clampToScale(min + (max - min) * position, test);
+  // avg known level 1 ≈ 430, 2 ≈ 550, 3 ≈ 670 on the SAT scale, matching the level bands.
+  return clampToScale(min + (max - min) * (0.18 + 0.2 * avg), test);
+}
+
+function questionLookup(spec: SessionSpec): Record<string, Question> {
+  const all: Question[] = [...spec.questions];
+  for (const f of Object.values(spec.followUps ?? {})) {
+    if (f.right) all.push(f.right);
+    if (f.wrong) all.push(f.wrong);
+  }
+  return Object.fromEntries(all.map((q) => [q.id, q]));
 }
 
 // ───────── Path ─────────
 
-function lessonUnit(subject: Subject, level: Level, domainId: string): Unit {
+function unitFor(subject: Subject, level: Level, domainId: string, skillIds: string[]): Unit {
   const domain = domainsFor(subject).find((d) => d.id === domainId)!;
-  const nodes: PathNode[] = skillsFor(domainId).map((s) => ({
-    id: `l-${s.id}-${level}`,
+  const nodes: PathNode[] = skillIds.map((id) => ({
+    id: `l-${id}-${level}`,
     subject,
     kind: "lesson",
     level,
     domain: domainId,
-    skill: s.id,
-    title: s.name,
+    skill: id,
+    title: skillById(id).name,
   }));
   nodes.push({
     id: `cp-${subject}-${level}-${domainId}`,
@@ -71,39 +137,27 @@ function lessonUnit(subject: Subject, level: Level, domainId: string): Unit {
     domain: domainId,
     title: `${domain.name} checkpoint`,
   });
-  return { id: `u-${subject}-${level}-${domainId}`, subject, level, domain: domainId, title: domain.name, kind: "normal", nodes };
+  return { id: `u-${subject}-${level}-${domainId}`, subject, level, domain: domainId, title: domain.name, nodes };
+}
+
+/** Highest level a skill is already known at (from placement), capped so the top level is always taught. */
+export function knownLevel(state: AppState, skill: string, start: Level, end: Level): number {
+  const placed = state.placement?.skills[skill];
+  const known = placed === undefined ? start - 1 : placed;
+  return Math.min(known, end - 1);
 }
 
 function fullPath(profile: Profile, state: AppState, subject: Subject): Unit[] {
   const start = levelFromScore(profile.start[subject]);
   const end = endLevelFor(profile.target[subject], start);
-  const domains = domainsFor(subject);
   const units: Unit[] = [];
-
-  if (start > 1) {
-    const lower = (start - 1) as Level;
-    units.push({
-      id: `u-${subject}-testout`,
-      subject,
-      level: lower,
-      domain: "all",
-      title: `Check your ${LEVEL_NAME[lower].toLowerCase()} skills`,
-      kind: "testout",
-      nodes: domains.map((d) => ({
-        id: `to-${subject}-${lower}-${d.id}`,
-        subject,
-        kind: "testout" as const,
-        level: lower,
-        domain: d.id,
-        title: `Test out of ${d.name}`,
-      })),
-    });
-    for (const d of domains) {
-      if (state.testOuts[`to-${subject}-${lower}-${d.id}`] === "failed") units.push(lessonUnit(subject, lower, d.id));
+  for (let l = 1; l <= end; l++) {
+    for (const d of domainsFor(subject)) {
+      const skills = skillsFor(d.id)
+        .map((s) => s.id)
+        .filter((id) => l > knownLevel(state, id, start, end as Level));
+      if (skills.length) units.push(unitFor(subject, l as Level, d.id, skills));
     }
-  }
-  for (let l = start; l <= end; l++) {
-    for (const d of domains) units.push(lessonUnit(subject, l as Level, d.id));
   }
   return units;
 }
@@ -126,8 +180,9 @@ export interface PathInfo {
 function levelFactor(level: Level, start: Level): number {
   if (level === start) return 1;
   if (level < start) return 0.9;
-  if (level === start + 1) return 0.75;
-  return 0.6;
+  if (level === start + 1) return 0.8;
+  if (level === start + 2) return 0.65;
+  return 0.5;
 }
 
 export function daysLeft(profile: Profile, today: string): number {
@@ -195,10 +250,11 @@ export type NextAction =
   | { kind: "node"; node: PathNode }
   | { kind: "timed"; subject: Subject }
   | { kind: "light" }
+  | { kind: "placement"; domain: string }
   | { kind: "bonus"; node: PathNode | null };
 
 export interface TodayPlan {
-  status: "normal" | "light" | "testday" | "after";
+  status: "placement" | "normal" | "light" | "testday" | "after";
   today: string;
   daysLeft: number;
   crunch: boolean;
@@ -242,7 +298,11 @@ export function planToday(state: AppState, today: string): TodayPlan {
     subject = other(subject);
   }
 
-  const review = lastLog && lastLog.qids.length > 0 ? { subject: lastLog.subject, date: lastDay! } : null;
+  // Review the subject actually practiced last time (the logged subject, if any of its questions were answered).
+  const subjectOf = (id: string) => (BANK_BY_ID[id] ?? state.aiBank[id])?.subject;
+  const practiced = lastLog ? lastLog.qids.map(subjectOf).filter((x): x is Subject => !!x) : [];
+  const reviewSubject = practiced.includes(lastLog?.subject as Subject) ? lastLog!.subject : practiced[practiced.length - 1];
+  const review = reviewSubject ? { subject: reviewSubject, date: lastDay! } : null;
   const reviewDone = review ? !!log?.review : true;
   const lessonsDone = log?.lessons ?? 0;
 
@@ -264,17 +324,23 @@ export function planToday(state: AppState, today: string): TodayPlan {
   const timedNeeded = crunch && !timedRecently;
 
   let status: TodayPlan["status"] = "normal";
-  if (left < 0) status = "after";
+  if (!placementComplete(state) && left > 0) status = "placement";
+  else if (left < 0) status = "after";
   else if (left === 0) status = "testday";
   else if (left <= LIGHT_DAYS) status = "light";
 
-  const goalMet = status === "light"
+  const goalMet = status === "placement"
+    ? false
+    : status === "light"
     ? !!log?.review
     : reviewDone && lessonsDone >= lessonsTarget && (!timedNeeded || timedDone);
 
   let next: NextAction | null = null;
   const cur = paths[subject].current;
-  if (status === "light") {
+  if (status === "placement") {
+    const domain = placementDomains().find((d) => !state.placement?.done.includes(d))!;
+    next = { kind: "placement", domain };
+  } else if (status === "light") {
     next = log?.review ? { kind: "bonus", node: null } : { kind: "light" };
   } else if (status === "normal") {
     if (!reviewDone && review) next = { kind: "review", subject: review.subject, date: review.date };
@@ -350,11 +416,13 @@ export interface SessionSummary {
   streakExtended: boolean;
   streakCount: number;
   freezeEarned: boolean;
-  testOut?: "passed" | "failed";
+  /** Placement: skills in this check already known at or above the starting level. */
+  knownSkills?: number;
+  placementDone?: boolean;
 }
 
 const XP_BASE: Record<SessionSpec["kind"], number> = {
-  lesson: 10, checkpoint: 15, testout: 10, review: 5, timed: 15, placement: 0, mistakes: 5, light: 10,
+  lesson: 10, checkpoint: 15, review: 5, timed: 15, placement: 5, mistakes: 5, light: 10,
 };
 
 export function applySession(
@@ -364,9 +432,11 @@ export function applySession(
   today: string,
   focus: Subject,
 ): { state: AppState; summary: SessionSummary } {
+  const lookup = questionLookup(spec);
   const correct = result.answers.filter((a) => a.correct).length;
   const total = result.answers.length;
   const ratio = total ? correct / total : 0;
+  const isPlacement = spec.kind === "placement";
 
   const answers = { ...state.answers };
   let mistakes = [...state.mistakes];
@@ -379,17 +449,18 @@ export function applySession(
       last: today,
       lastCorrect: a.correct,
     };
-    if (a.correct) mistakes = mistakes.filter((id) => id !== a.qid);
-    else if (!mistakes.includes(a.qid)) mistakes.push(a.qid);
-    const q = spec.questions.find((x) => x.id === a.qid);
+    // Placement misses aren't added to the review pile; the route already teaches those skills.
+    if (!isPlacement) {
+      if (a.correct) mistakes = mistakes.filter((id) => id !== a.qid);
+      else if (!mistakes.includes(a.qid)) mistakes.push(a.qid);
+    }
+    const q = lookup[a.qid];
     if (q) recent.push({ subject: q.subject, correct: a.correct });
   }
 
   const wasDone = spec.node ? !!state.completed[spec.node.id]?.passed : false;
   const completed = { ...state.completed };
-  const testOuts = { ...state.testOuts };
   let passed: boolean | null = null;
-  let testOut: SessionSummary["testOut"];
   if (spec.node) {
     if (spec.kind === "lesson") {
       completed[spec.node.id] = { date: today, correct, total, passed: true };
@@ -397,26 +468,35 @@ export function applySession(
       passed = ratio >= (spec.passThreshold ?? 0.75);
       const prev = completed[spec.node.id];
       if (!prev?.passed) completed[spec.node.id] = { date: today, correct, total, passed };
-    } else if (spec.kind === "testout") {
-      passed = ratio >= (spec.passThreshold ?? 0.8);
-      testOut = passed ? "passed" : "failed";
-      testOuts[spec.node.id] = testOut;
-      completed[spec.node.id] = { date: today, correct, total, passed };
+    }
+  }
+
+  let placement = state.placement;
+  let profile = state.profile!;
+  let knownSkills: number | undefined;
+  if (isPlacement && spec.domain) {
+    const found = scorePlacement(profile, spec, result);
+    const subject = DOMAINS.find((d) => d.id === spec.domain)!.subject;
+    const start = probeLevel(profile, subject);
+    knownSkills = Object.values(found).filter((k) => k >= start).length;
+    placement = {
+      skills: { ...(placement?.skills ?? {}), ...found },
+      done: Array.from(new Set([...(placement?.done ?? []), spec.domain])),
+    };
+    const after = { ...state, placement };
+    if (!hasScore(profile) && subjectPlaced(after, subject)) {
+      profile = { ...profile, start: { ...profile.start, [subject]: estimateSection(after, subject, profile.test) } };
     }
   }
 
   let xp = XP_BASE[spec.kind] + correct;
   if (spec.kind === "checkpoint" && passed) xp += 5;
-  if (total >= 5 && correct === total && spec.kind !== "placement") xp += 5;
-  if (spec.kind === "placement") xp = 0;
+  if (total >= 5 && correct === total && !isPlacement) xp += 5;
 
   const days = { ...state.days };
-  let streak = state.streak;
-  let streakExtended = false;
-  let freezeEarned = false;
-  if (spec.kind !== "placement") {
+  if (!isPlacement) {
     const log = days[today] ?? { subject: focus, lessons: 0, review: false, timed: false, xp: 0, qids: [] };
-    const isNode = spec.kind === "lesson" || spec.kind === "checkpoint" || spec.kind === "testout";
+    const isNode = spec.kind === "lesson" || spec.kind === "checkpoint";
     days[today] = {
       ...log,
       lessons: log.lessons + (isNode && !wasDone && spec.node?.subject === log.subject ? 1 : 0),
@@ -425,25 +505,31 @@ export function applySession(
       xp: log.xp + xp,
       qids: Array.from(new Set([...log.qids, ...result.answers.map((a) => a.qid)])),
     };
-    const t = touchStreak(state, today);
-    streak = t.streak;
-    streakExtended = t.extended;
-    freezeEarned = t.freezeEarned;
   }
+  const t = touchStreak(state, today);
 
+  const next: AppState = {
+    ...state,
+    profile,
+    placement,
+    answers,
+    mistakes: mistakes.slice(-300),
+    recent: recent.slice(-120),
+    completed,
+    days,
+    xp: state.xp + xp,
+    streak: t.streak,
+  };
   return {
-    state: {
-      ...state,
-      answers,
-      mistakes: mistakes.slice(-300),
-      recent: recent.slice(-120),
-      completed,
-      testOuts,
-      days,
-      xp: state.xp + xp,
-      streak,
+    state: next,
+    summary: {
+      xp, correct, total, passed,
+      streakExtended: t.extended,
+      streakCount: t.streak.count,
+      freezeEarned: t.freezeEarned,
+      knownSkills,
+      placementDone: isPlacement ? placementComplete(next) : undefined,
     },
-    summary: { xp, correct, total, passed, streakExtended, streakCount: streak.count, freezeEarned, testOut },
   };
 }
 
@@ -459,6 +545,7 @@ export function projectedScore(state: AppState, subject: Subject, path: PathInfo
   const p = state.profile!;
   const start = p.start[subject];
   const target = p.target[subject];
+  if (!start) return 0;
   if (target <= start) return start;
   const progress = path.totalLessons ? path.doneLessons / path.totalLessons : 0;
   const acc = accuracy(state, subject);

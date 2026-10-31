@@ -1,6 +1,6 @@
 // Sanity checks for the built-in question bank. Run: npm run check:bank
 import { readFileSync } from "node:fs";
-const files = ["lib/bank/rw.ts", "lib/bank/math.ts"];
+const files = ["lib/bank/rw.ts", "lib/bank/rw-hard.ts", "lib/bank/math.ts", "lib/bank/math-hard.ts"];
 let problems = 0;
 for (const f of files) {
   const src = readFileSync(f, "utf8");

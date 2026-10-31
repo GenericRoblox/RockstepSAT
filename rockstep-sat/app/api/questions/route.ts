@@ -28,6 +28,11 @@ function system(subject: "rw" | "math"): string {
   ].join(" ");
 }
 
+const HARD_EXAMPLES: Record<"rw" | "math", string> = {
+  math: 'Example of Expert difficulty: "The solutions to $x^2 + 11x + 12 = 0$ are $\\frac{-11 \\pm \\sqrt{k}}{2}$, where $k$ is a constant. What is the value of $k$?" (Answer: 73.) Expert questions hide the key step: solving for a constant, using structure instead of brute force, combining two concepts, or interpreting a model in context.',
+  rw: "Expert passages are dense and academic (science, history, literature, economics), around 120-150 words, often presenting a claim and a complication. Wrong choices must be very close to right: true but irrelevant, too strong, reversing a relationship, or answering a different question.",
+};
+
 function userPrompt(skillId: string, level: Level, count: number, avoid: string[]): string {
   const skill = SKILLS.find((s) => s.id === skillId)!;
   const domain = domainById(skill.domain);
@@ -35,6 +40,7 @@ function userPrompt(skillId: string, level: Level, count: number, avoid: string[
     `Write ${count} multiple-choice questions.`,
     `Section: ${skill.subject === "rw" ? "Reading and Writing" : "Math"}. Domain: ${domain.name}. Skill: ${skill.name} (${skill.about}).`,
     `Difficulty: ${LEVEL_ABOUT[level]}.`,
+    level >= 3 ? HARD_EXAMPLES[skill.subject] : "",
     FORMAT_NOTES[skillId] ?? "",
     avoid.length ? `Do not repeat these existing questions: ${avoid.map((a) => `"${a}"`).join("; ")}.` : "",
     'Vary which choice is correct. Return: {"questions":[{"passage": string or null, "passage2": string or null, "table": object or null, "stem": string, "choices": [4 strings], "answer": 0-3, "explanation": string}]}',
@@ -136,7 +142,7 @@ export async function POST(req: Request) {
     const avoid: string[] = Array.isArray(body.avoid)
       ? body.avoid.filter((a: unknown) => typeof a === "string").slice(0, 12).map((a: string) => a.slice(0, 90))
       : [];
-    if (!SKILLS.some((s) => s.id === skillId) || ![1, 2, 3].includes(level)) {
+    if (!SKILLS.some((s) => s.id === skillId) || ![1, 2, 3, 4].includes(level)) {
       return Response.json({ error: "Unknown skill or level." }, { status: 400 });
     }
     const subject = SKILLS.find((s) => s.id === skillId)!.subject;

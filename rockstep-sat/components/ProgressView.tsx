@@ -43,8 +43,8 @@ export default function ProgressView({ state, plan, onPracticeMistakes }: { stat
           return (
             <section key={s} className={`plan-card s-${s}`}>
               <p className="plan-sub">{SUBJECT_NAME[s]}</p>
-              <p className="plan-big">{projectedScore(state, s, path)}</p>
-              <p className="plan-sub">Projected. Started at {p.start[s]}, goal {p.target[s]}.</p>
+              <p className="plan-big">{p.start[s] ? projectedScore(state, s, path) : "–"}</p>
+              <p className="plan-sub">{p.start[s] ? `Projected. Started at ${p.start[s]}, goal ${p.target[s]}.` : `Finish placement to see a projection. Goal ${p.target[s]}.`}</p>
               <p className="plan-sub">{path.doneLessons} of {path.totalLessons} lessons{acc !== null ? `, ${Math.round(acc * 100)}% recent accuracy` : ""}</p>
             </section>
           );

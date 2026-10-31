@@ -2,12 +2,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { AppState, PathNode, Subject } from "@/lib/types";
 import type { NextAction, TodayPlan } from "@/lib/engine";
-import { isDone, projectedScore } from "@/lib/engine";
-import { LEVEL_NAME } from "@/lib/curriculum";
+import { isDone, placementDomains, projectedScore, subjectPlaced } from "@/lib/engine";
+import { LEVEL_NAME, domainById } from "@/lib/curriculum";
 import { SUBJECT_NAME, TESTS } from "@/lib/scales";
 import { prettyDate } from "@/lib/dates";
 import Hold from "./Hold";
-import { Check, Chalk, Flag, Flame, Lock, Skip, Snow } from "./Icons";
+import { Check, Chalk, Flag, Flame, Lock, Snow } from "./Icons";
 
 interface Props {
   state: AppState;
@@ -33,7 +33,8 @@ function actionLabel(a: NextAction | null, plan: TodayPlan): string {
   switch (a.kind) {
     case "review": return "Start warm-up";
     case "node":
-      return a.node.kind === "checkpoint" ? "Take the checkpoint" : a.node.kind === "testout" ? a.node.title : plan.lessonsDone > 0 ? "Next lesson" : "Start today's lesson";
+      return a.node.kind === "checkpoint" ? "Take the checkpoint" : plan.lessonsDone > 0 ? "Next lesson" : "Start today's lesson";
+    case "placement": return `Next check: ${domainById(a.domain).name}`;
     case "timed": return "Start timed section";
     case "light": return "Start final review";
     case "bonus": return a.node ? "Keep climbing" : "Practice mistakes";
@@ -58,6 +59,35 @@ function TodayCard({ state, plan, onAction, onGoSettings, preparing }: Props) {
       <section className="today">
         <h2 className="today-title">Test day. You're ready.</h2>
         <p className="today-sub">No lessons today. Charge your device, bring your ID, eat breakfast, and get there early. Pace yourself and skip around on hard questions.</p>
+      </section>
+    );
+  }
+
+  if (plan.status === "placement") {
+    const done = state.placement?.done ?? [];
+    return (
+      <section className="today">
+        <p className="today-kicker">Placement</p>
+        <h2 className="today-title">Find your starting point</h2>
+        <p className="today-sub">{done.length} of 8 checks done. Your route is built from the results.</p>
+        <ol className="steps">
+          {placementDomains().map((d) => {
+            const dom = domainById(d);
+            const ok = done.includes(d);
+            return (
+              <li key={d} className={ok ? "step done" : "step"}>
+                <span className="step-mark">{ok ? <Check size={16} /> : null}</span>
+                <span>
+                  <span className="step-label">{dom.name}</span>
+                  <span className="step-sub">{SUBJECT_NAME[dom.subject]}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+        {plan.next && (
+          <button className="btn primary wide" onClick={() => plan.next && onAction(plan.next)}>{actionLabel(plan.next, plan)}</button>
+        )}
       </section>
     );
   }
@@ -122,6 +152,16 @@ function Scores({ state, plan }: { state: AppState; plan: TodayPlan }) {
     <section className="scores">
       {(["rw", "math"] as Subject[]).map((s) => {
         const proj = projectedScore(state, s, plan.paths[s]);
+        if (!p.start[s]) {
+          return (
+            <div key={s} className={`score-row s-${s}`}>
+              <div className="score-head">
+                <span className="score-name">{SUBJECT_NAME[s]}</span>
+                <span className="score-nums">Goal {p.target[s]}. Starting point after placement.</span>
+              </div>
+            </div>
+          );
+        }
         return (
           <div key={s} className={`score-row s-${s}`}>
             <div className="score-head">
@@ -148,6 +188,14 @@ function RouteWall({ state, plan, subject, onOpenNode }: { state: AppState; plan
     currentRef.current?.scrollIntoView({ block: "center", behavior: "auto" });
   }, [subject]);
 
+  if (!subjectPlaced(state, subject)) {
+    return (
+      <div className={`wall s-${subject}`}>
+        <p className="wall-empty">Finish the {SUBJECT_NAME[subject]} placement checks to see this route. It skips the skills you already know.</p>
+      </div>
+    );
+  }
+
   let i = 0;
   const units = [...path.units].reverse();
   return (
@@ -172,7 +220,6 @@ function RouteWall({ state, plan, subject, onOpenNode }: { state: AppState; plan
                 const failedCp = n.kind === "checkpoint" && state.completed[n.id] && !state.completed[n.id].passed;
                 const offset = Math.round(Math.sin(k * 1.15) * 34);
                 const cls = ["hold", n.kind, done ? "done" : "", current ? "current" : "", locked ? "locked" : ""].join(" ");
-                const to = n.kind === "testout" ? state.testOuts[n.id] : undefined;
                 return (
                   <li key={n.id} className="hold-li" style={{ transform: `translateX(${offset}%)` }}>
                     <button
@@ -184,12 +231,11 @@ function RouteWall({ state, plan, subject, onOpenNode }: { state: AppState; plan
                     >
                       <Hold variant={k} size={n.kind === "checkpoint" ? 84 : 70} />
                       <span className="hold-icon">
-                        {done ? <Check size={26} /> : n.kind === "checkpoint" ? <Flag size={24} /> : n.kind === "testout" ? <Skip size={22} /> : locked ? <Lock size={18} /> : null}
+                        {done ? <Check size={26} /> : n.kind === "checkpoint" ? <Flag size={24} /> : locked ? <Lock size={18} /> : null}
                       </span>
                     </button>
                     <span className={current ? "hold-label current" : "hold-label"}>
                       {n.title}
-                      {to === "passed" && " (tested out)"}
                       {failedCp && " (try again)"}
                     </span>
                   </li>
@@ -197,7 +243,7 @@ function RouteWall({ state, plan, subject, onOpenNode }: { state: AppState; plan
               })}
             </ol>
             <div className="route-tag">
-              <span className="tag-level">{u.kind === "testout" ? "Placement" : LEVEL_NAME[u.level]}</span>
+              <span className="tag-level">{LEVEL_NAME[u.level]}</span>
               <span className="tag-name">{u.title}</span>
             </div>
           </div>

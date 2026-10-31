@@ -74,6 +74,7 @@ export default function SessionPlayer({ spec, aiReady, accessCode, onDone, onQui
   const [timeLeft, setTimeLeft] = useState(spec.timeLimitSec ?? 0);
   const [explain, setExplain] = useState<{ loading: boolean; text?: string; error?: string } | null>(null);
   const first = useRef<Record<string, boolean>>({});
+  const asked = useRef<string[]>([]);
   const repeated = useRef<Set<string>>(new Set());
   const startedAt = useRef(Date.now());
   const finished = useRef(false);
@@ -87,8 +88,10 @@ export default function SessionPlayer({ spec, aiReady, accessCode, onDone, onQui
   const finish = useCallback(() => {
     if (finished.current) return;
     finished.current = true;
+    // Everything asked, in order (including adaptive follow-ups), plus anything never reached (counts as missed).
+    const ids = Array.from(new Set([...asked.current, ...spec.questions.map((x) => x.id)]));
     onDone({
-      answers: spec.questions.map((x) => ({ qid: x.id, correct: first.current[x.id] ?? false })),
+      answers: ids.map((id) => ({ qid: id, correct: first.current[id] ?? false })),
       seconds: Math.round((Date.now() - startedAt.current) / 1000),
     });
   }, [onDone, spec.questions]);
@@ -105,10 +108,10 @@ export default function SessionPlayer({ spec, aiReady, accessCode, onDone, onQui
 
   const canCheck = phase === "answer" && (isMC ? choice !== null : spr.trim() !== "");
 
-  const advance = useCallback(() => {
+  const advance = useCallback((queueLength?: number) => {
     explainCtrl.current?.abort();
     setExplain(null);
-    if (idx + 1 >= queue.length) {
+    if (idx + 1 >= (queueLength ?? queue.length)) {
       finish();
       return;
     }
@@ -121,15 +124,22 @@ export default function SessionPlayer({ spec, aiReady, accessCode, onDone, onQui
   const check = useCallback(() => {
     if (!canCheck || !q) return;
     const correct = isMC ? choice === q.answer : sprCorrect(spr, q.accepted ?? []);
-    if (first.current[q.id] === undefined) first.current[q.id] = correct;
+    let nextQueue = queue;
+    if (first.current[q.id] === undefined) {
+      first.current[q.id] = correct;
+      asked.current.push(q.id);
+      const follow = spec.followUps?.[q.id]?.[correct ? "right" : "wrong"];
+      if (follow) nextQueue = [...queue.slice(0, idx + 1), follow, ...queue.slice(idx + 1)];
+    }
     if (!correct && repeats && !repeated.current.has(q.id)) {
       repeated.current.add(q.id);
-      setQueue((qs) => [...qs, q]);
+      nextQueue = [...nextQueue, q];
     }
+    if (nextQueue !== queue) setQueue(nextQueue);
     setWasRight(correct);
     if (showsFeedback) setPhase("feedback");
-    else advance();
-  }, [canCheck, q, isMC, choice, spr, repeats, showsFeedback, advance]);
+    else advance(nextQueue.length);
+  }, [canCheck, q, isMC, choice, spr, repeats, showsFeedback, advance, queue, idx, spec.followUps]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -178,7 +188,7 @@ export default function SessionPlayer({ spec, aiReady, accessCode, onDone, onQui
         </header>
         <div className="intro">
           <p className="intro-kicker">
-            {spec.node ? `${LEVEL_NAME[spec.node.level]} route` : timed ? "Test pacing" : "Before you start"}
+            {spec.node ? `${LEVEL_NAME[spec.node.level]} level` : timed ? "Test pacing" : spec.kind === "placement" ? "Placement" : "Before you start"}
           </p>
           <h1 className="intro-title">{spec.title}</h1>
           {timed ? (
@@ -193,7 +203,7 @@ export default function SessionPlayer({ spec, aiReady, accessCode, onDone, onQui
             </div>
           )}
           <button className="btn primary wide" onClick={() => { setIntro(false); startedAt.current = Date.now(); }} autoFocus>
-            {timed ? "Start the clock" : "Start"}
+            {timed ? "Start the clock" : spec.kind === "placement" ? "Start the check" : "Start"}
           </button>
         </div>
       </div>
@@ -213,7 +223,7 @@ export default function SessionPlayer({ spec, aiReady, accessCode, onDone, onQui
         {timed ? (
           <span className={timeLeft < 60 ? "timer low" : "timer"}><Clock size={16} /> {fmtTime(timeLeft)}</span>
         ) : (
-          <span className="counter">{Math.min(idx + 1, total)}/{total}</span>
+          <span className="counter">{spec.kind === "placement" ? `${idx + 1}` : `${Math.min(idx + 1, total)}/${total}`}</span>
         )}
       </header>
 
@@ -226,7 +236,8 @@ export default function SessionPlayer({ spec, aiReady, accessCode, onDone, onQui
           </section>
         )}
         <section className="question-pane">
-          {isRepeat && <p className="repeat-tag">Second try</p>}
+          {isRepeat && repeated.current.has(q.id) && <p className="repeat-tag">Second try</p>}
+          {spec.kind === "lesson" && !isRepeat && spec.node && q.level > spec.node.level && <p className="stretch-tag">Stretch question: one level up</p>}
           {q.subject === "math" && <Table q={q} />}
           <p className="stem"><MathText text={q.stem} /></p>
 
@@ -295,7 +306,7 @@ export default function SessionPlayer({ spec, aiReady, accessCode, onDone, onQui
         <button
           className={`btn wide ${phase === "feedback" ? (wasRight ? "good" : "bad") : "primary"}`}
           disabled={phase === "answer" && !canCheck}
-          onClick={phase === "answer" ? check : advance}
+          onClick={phase === "answer" ? check : () => advance()}
         >
           {phase === "answer" ? (showsFeedback ? "Check" : idx + 1 >= queue.length ? "Finish" : "Next") : "Continue"}
         </button>

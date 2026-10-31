@@ -1,6 +1,6 @@
 export type Subject = "rw" | "math";
 export type TestType = "SAT" | "PSAT_NMSQT" | "PSAT_10" | "PSAT_89";
-export type Level = 1 | 2 | 3;
+export type Level = 1 | 2 | 3 | 4;
 export type Grade = 9 | 10 | 11 | 12;
 
 export interface DataTable {
@@ -71,7 +71,6 @@ export interface AppState {
   version: 1;
   profile: Profile | null;
   completed: Record<string, NodeResult>;
-  testOuts: Record<string, "passed" | "failed">;
   days: Record<string, DayLog>;
   xp: number;
   streak: {
@@ -82,13 +81,15 @@ export interface AppState {
     frozenDates: string[];
   };
   answers: Record<string, AnswerStat>;
+  /** Placement results: highest level demonstrated per skill (0 = none), and finished domain checks. */
+  placement: { skills: Record<string, number>; done: string[] } | null;
   mistakes: string[];
   aiBank: Record<string, Question>;
   recent: { subject: Subject; correct: boolean }[];
   settings: { accessCode?: string };
 }
 
-export type NodeKind = "lesson" | "checkpoint" | "testout";
+export type NodeKind = "lesson" | "checkpoint";
 
 export interface PathNode {
   id: string;
@@ -106,14 +107,12 @@ export interface Unit {
   level: Level;
   domain: string;
   title: string;
-  kind: "testout" | "normal";
   nodes: PathNode[];
 }
 
 export type SessionKind =
   | "lesson"
   | "checkpoint"
-  | "testout"
   | "review"
   | "timed"
   | "placement"
@@ -129,6 +128,10 @@ export interface SessionSpec {
   timeLimitSec?: number;
   passThreshold?: number;
   tip?: string;
+  /** Placement: which domain this check covers. */
+  domain?: string;
+  /** Adaptive follow-ups: after a question is answered, ask the matching branch next. */
+  followUps?: Record<string, { right?: Question; wrong?: Question }>;
 }
 
 export interface SessionAnswer {
@@ -137,6 +140,6 @@ export interface SessionAnswer {
 }
 
 export interface SessionResult {
-  answers: SessionAnswer[]; // first attempt for each question
+  answers: SessionAnswer[]; // first attempt for each question asked, in order
   seconds: number;
 }

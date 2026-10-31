@@ -14,11 +14,12 @@ export default function SessionEnd({
     note = summary.passed
       ? "This section of the route is done."
       : `You need ${Math.ceil((spec.passThreshold ?? 0.75) * summary.total)} of ${summary.total} to clear it. Your misses are in your review pile. Try again when you're ready.`;
-  } else if (spec.kind === "testout") {
-    title = summary.testOut === "passed" ? "Tested out" : "Lessons added";
-    note = summary.testOut === "passed"
-      ? "You've shown you know this. These lessons are skipped."
-      : "A few of these tripped you up, so the lessons for this area were added to your route.";
+  } else if (spec.kind === "placement") {
+    title = summary.placementDone ? "Placement complete" : "Check complete";
+    note = summary.knownSkills
+      ? `You already know ${summary.knownSkills} ${summary.knownSkills === 1 ? "skill" : "skills"} here at your starting level. Those lessons are skipped.`
+      : "Your lessons in this area start at your level.";
+    if (summary.placementDone) note += " Next: your route.";
   } else if (spec.kind === "timed") {
     title = "Time's up";
     note = "Everything you missed is in your review pile.";

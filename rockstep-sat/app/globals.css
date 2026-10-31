@@ -798,3 +798,13 @@ p { margin: 0; }
   .choice.wrong .letter,
   .step.done .step-mark { color: #0b1220; }
 }
+
+.stretch-tag { font-weight: 700; color: var(--s); font-size: 0.9rem; }
+.wall-empty {
+  text-align: center;
+  color: var(--muted);
+  background: var(--panel);
+  border: 2px dashed var(--line);
+  border-radius: 18px;
+  padding: 28px 20px;
+}

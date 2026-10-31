@@ -38,20 +38,39 @@ The app works without a key. Lessons then use only the built-in question bank.
 
 ## How the course works
 
-- **Starting point:** each section score maps to a level. Below 480 starts at
-  Foundation, 480–590 at Core, and 600+ at Advanced. Goals of 600+ include Advanced lessons.
-- **Test-outs:** students who start above Foundation get one quick check per area at
-  the level below. Scoring 5 of 6 skips those lessons; missing more adds them to the route.
-- **Daily plan:** days alternate between Reading & Writing and Math. Each day opens with a
-  5-question warm-up on the previous study day's subject, then 1–4 lessons. The count is
-  remaining lessons divided by remaining days for that subject, recalculated daily.
-- **Test within 30 days:** if the route can't fit, the lowest-value lessons are set aside,
-  ranked by how often each skill appears on the test. A timed 10-question section is
-  added once a week at official pacing.
-- **Last 2 days:** final review of mistakes only. Test day has no lessons.
-- **Lessons:** up to 8 questions. Missed questions come back once at the end and go into a
-  review pile. Checkpoints need 75% to clear.
-- **Motivation:** streaks, chalk points (XP), and streak freezes earned every 7 days (hold up to 2).
+**Four difficulty levels.** Foundation, Core, Advanced, and Expert. Expert matches the hardest
+questions on the Digital SAT (for example: "The solutions to x² + 11x + 12 = 0 are (−11 ± √k)/2.
+What is k?").
+
+**Score sets the difficulty.** A past section score maps to a starting level (SAT scale, which
+the PSATs share): below 480 Foundation, 480–579 Core, 580–679 Advanced, 680+ Expert. Every route
+climbs at least one level and reaches at least Advanced. Goals of 600+ climb to Expert.
+
+**Placement sets what to skip.** Everyone takes placement, with or without a past score:
+8 short checks (one per test domain), resumable between checks, about 35 minutes total.
+- Each of the 30 skills gets a question at the starting level.
+- Right: a harder follow-up decides whether the next level can be skipped too.
+- Wrong: with a past score, lessons for that skill begin at the starting level. Without a score,
+  an easier follow-up finds where to begin, and the section score is estimated from the results.
+- Every skill keeps its top-level lesson, so each route ends on the hardest material.
+
+**Lessons ramp up.** Each lesson is 6 questions at its level, easiest first, then 2 "stretch"
+questions from the level above. The route itself climbs level by level, with a checkpoint
+(75% to clear) at the end of each area.
+
+**Daily plan.** Days alternate between Reading & Writing and Math. Each day starts with a
+5-question warm-up on the subject practiced last time, then 1–4 lessons. The count is remaining
+lessons divided by remaining days for that subject, recalculated daily.
+
+**Short on time.** Within 30 days of the test, if the route can't fit, the lowest-value
+lessons are set aside (ranked by how often each skill appears on the test, and by how far above
+the starting level they are). A timed 10-question section is added weekly at official pacing.
+The last 2 days are review only, and test day has no lessons.
+
+**Motivation.** Streaks, chalk points (XP), and streak freezes earned every 7 days (hold up to 2).
+
+**Question bank.** 240 built-in questions: at least 2 Foundation, 2 Core, 2 Advanced, and
+2 Expert per skill. With the AI connected, lessons fill up with fresh verified questions.
 
 ## AI questions (Nemotron via OpenRouter)
 
@@ -78,10 +97,10 @@ Settings. All saving goes through `lib/storage.ts`. To support many students wit
 
 | Path | What it does |
 | --- | --- |
-| `lib/engine.ts` | Routes, daily plan, pacing, streaks, projections |
-| `lib/sessions.ts` | Picks questions for each session type |
+| `lib/engine.ts` | Levels, placement scoring, routes, daily plan, pacing, streaks, projections |
+| `lib/sessions.ts` | Picks questions for lessons (with stretch questions), placement checks, reviews |
 | `lib/curriculum.ts` | Official Digital SAT domains and skills, weights, tips |
-| `lib/bank/` | 150 built-in questions (`npm run check:bank` checks their structure) |
+| `lib/bank/` | 240 built-in questions (`npm run check:bank` checks their structure) |
 | `lib/scales.ts` | Score ranges for SAT, PSAT/NMSQT, PSAT 10, PSAT 8/9 |
 | `app/api/` | Server routes for OpenRouter (key stays on the server) |
 | `components/` | Screens: onboarding, home route, session player, progress, settings |

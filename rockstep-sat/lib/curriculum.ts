@@ -190,16 +190,20 @@ export const SKILLS: Skill[] = [
   },
 ];
 
+export const LEVELS: Level[] = [1, 2, 3, 4];
+
 export const LEVEL_NAME: Record<Level, string> = {
   1: "Foundation",
   2: "Core",
   3: "Advanced",
+  4: "Expert",
 };
 
 export const LEVEL_ABOUT: Record<Level, string> = {
-  1: "easier, test-like questions that build the basic skill (about 400-520 score range)",
-  2: "medium-difficulty questions typical of the middle of the test (about 520-650 score range)",
-  3: "hard questions from the top of the test, with multiple steps or subtle wrong answers (650+ score range)",
+  1: "easy questions for students scoring below about 480 on a 200-800 section: one step, familiar setups",
+  2: "medium questions for students scoring about 480-580: two steps, typical test wording",
+  3: "hard questions for students scoring about 580-680: several steps, plausible wrong answers built on common mistakes",
+  4: "the hardest questions on the Digital SAT, for students aiming at 680-800: multi-step reasoning, unfamiliar or abstract setups, constants to solve for, and wrong answers that are very close to right",
 };
 
 export function skillById(id: string): Skill {

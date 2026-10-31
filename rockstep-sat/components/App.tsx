@@ -1,8 +1,8 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AppState, PathNode, Profile, Question, SessionResult, SessionSpec } from "@/lib/types";
+import type { AppState, PathNode, Question, SessionResult, SessionSpec } from "@/lib/types";
 import {
-  applyRollover, applySession, estimateFromPlacement, initialState, levelFromScore, planToday,
+  applyRollover, applySession, initialState, levelFromScore, planToday,
   type NextAction, type SessionSummary,
 } from "@/lib/engine";
 import {
@@ -15,7 +15,7 @@ import Onboarding, { type OnboardingResult } from "./Onboarding";
 import Home from "./Home";
 import SessionPlayer from "./SessionPlayer";
 import SessionEnd from "./SessionEnd";
-import PlanReady from "./PlanReady";
+import PlanReady, { PlacementIntro } from "./PlanReady";
 import ProgressView from "./ProgressView";
 import SettingsView from "./SettingsView";
 import { Chart, Gear, Mountain } from "./Icons";
@@ -23,7 +23,7 @@ import { Chart, Gear, Mountain } from "./Icons";
 type View =
   | { name: "loading" }
   | { name: "onboarding" }
-  | { name: "placement"; pending: Profile; step: 0 | 1; spec: SessionSpec; rw?: number }
+  | { name: "placementIntro" }
   | { name: "ready" }
   | { name: "home" }
   | { name: "progress" }
@@ -158,11 +158,14 @@ export default function App() {
       case "light": {
         const spec = lightSession(s);
         if (spec.questions.length < 4) {
-          spec.questions = [...spec.questions, ...placementSession("rw").questions, ...placementSession("math").questions].slice(0, 12);
+          spec.questions = [...spec.questions, ...timedSession(s, "rw", 3).questions.slice(0, 6), ...timedSession(s, "math", 3).questions.slice(0, 6)];
         }
         launch(spec);
         break;
       }
+      case "placement":
+        launch(placementSession(s, s.profile!, a.domain));
+        break;
       case "bonus":
         if (a.node) openNode(a.node);
         else launch(mistakesSession(s));
@@ -170,28 +173,12 @@ export default function App() {
     }
   };
 
-  const onOnboarded = ({ profile, needsPlacement }: OnboardingResult) => {
-    if (needsPlacement) {
-      setView({ name: "placement", pending: profile, step: 0, spec: placementSession("rw") });
-    } else {
-      setState({ ...initialState(), profile });
-      setView({ name: "ready" });
-    }
+  const onOnboarded = ({ profile }: OnboardingResult) => {
+    setState({ ...initialState(), profile, placement: { skills: {}, done: [] } });
+    setView({ name: "placementIntro" });
   };
 
   const onSessionDone = (spec: SessionSpec, result: SessionResult) => {
-    if (view.name === "placement") {
-      const correct = result.answers.filter((a) => a.correct).length;
-      const est = estimateFromPlacement(correct, result.answers.length, view.pending.test);
-      if (view.step === 0) {
-        setView({ ...view, step: 1, rw: est, spec: placementSession("math") });
-      } else {
-        const profile: Profile = { ...view.pending, start: { rw: view.rw ?? est, math: est } };
-        setState({ ...initialState(), profile });
-        setView({ name: "ready" });
-      }
-      return;
-    }
     if (!plan) return;
     const { state: next, summary } = applySession(stateRef.current!, spec, result, today, plan.subject);
     setState(next);
@@ -209,18 +196,6 @@ export default function App() {
 
   if (view.name === "onboarding") return <Onboarding onComplete={onOnboarded} />;
 
-  if (view.name === "placement") {
-    return (
-      <SessionPlayer
-        key={`placement-${view.step}`}
-        spec={{ ...view.spec, tip: view.step === 0 ? "Answer these 6 Reading & Writing questions as well as you can. It's fine to guess. Next come 6 Math questions." : "Now 6 Math questions. Use scratch paper if it helps." }}
-        aiReady={false}
-        onDone={(r) => onSessionDone(view.spec, r)}
-        onQuit={() => setView({ name: "onboarding" })}
-      />
-    );
-  }
-
   if (view.name === "session") {
     return (
       <SessionPlayer
@@ -235,11 +210,21 @@ export default function App() {
   }
 
   if (view.name === "end") {
-    return <SessionEnd spec={view.spec} summary={view.summary} onContinue={() => setView({ name: "home" })} />;
+    const toReady = view.summary.placementDone;
+    return <SessionEnd spec={view.spec} summary={view.summary} onContinue={() => setView(toReady ? { name: "ready" } : { name: "home" })} />;
   }
 
   if (!plan) return null;
   if (view.name === "ready") return <PlanReady state={state} plan={plan} onStart={() => setView({ name: "home" })} />;
+  if (view.name === "placementIntro") {
+    return (
+      <PlacementIntro
+        state={state}
+        onStart={() => onAction({ kind: "placement", domain: plan.next?.kind === "placement" ? plan.next.domain : "ii" })}
+        onLater={() => setView({ name: "home" })}
+      />
+    );
+  }
 
   return (
     <div className="shell">
